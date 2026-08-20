@@ -139,7 +139,12 @@ class PreviewDialog(QDialog):
         target = Path(self.temporary.path()) / "preview.py"
         target.write_text(code, encoding="utf-8")
         self.process.setWorkingDirectory(self.temporary.path())
-        self.process.start(sys.executable, [str(target)])
+        arguments = (
+            ["--glsketch-preview", str(target)]
+            if getattr(sys, "frozen", False)
+            else [str(target)]
+        )
+        self.process.start(sys.executable, arguments)
         self.timeout.start()
 
     def _read_output(self) -> None:

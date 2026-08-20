@@ -4,6 +4,11 @@ import sys
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--glsketch-preview":
+        import runpy
+
+        runpy.run_path(sys.argv[2], run_name="__main__")
+        return 0
     try:
         from PySide6.QtGui import QSurfaceFormat
         from PySide6.QtWidgets import QApplication
