@@ -2,6 +2,26 @@
 
 Formato inspirado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e versionamento SemVer.
 
+## [0.3.0] - 2026-08-20
+
+### Added
+
+- Editor de código com numeração de linhas e destaque de sintaxe.
+- Parser seguro baseado em AST para OpenGL imediato suportado.
+- Sincronização código → cena com debounce de 350 ms.
+- Diagnósticos por severidade, linha e coluna.
+- Seleção sincronizada entre blocos de código e objetos.
+- Testes de round-trip para formas, cores, layers e transformações.
+
+### Changed
+
+- Atualizações visuais preservam texto externo aos blocos GLSketch.
+- Código temporariamente inválido mantém a última cena válida.
+
+### Known limitations
+
+- Python arbitrário permanece somente código e nunca é executado pelo parser.
+
 ## [0.2.0] - 2026-08-20
 
 ### Added

@@ -6,7 +6,8 @@ Editor visual 2D para criar desenhos com primitivas geométricas e sincronizá-l
 
 - Canvas vetorial com grid, snap, seleção, movimento, zoom e pan.
 - Linha, retângulo, triângulo e elipse.
-- Código Legacy OpenGL atualizado a partir do desenho.
+- Código Legacy OpenGL editável com sincronização bidirecional após debounce.
+- Parser AST seguro, diagnósticos e preservação da última cena válida.
 - Projetos JSON versionados em `.glsketch`.
 - Exportação de programa `.py` completo e preview GLUT em subprocesso.
 - Layers, renomear, cores, duplicar e excluir.
@@ -25,7 +26,7 @@ No Prompt de Comando, ative com `.venv\Scripts\activate.bat`. Em Linux/macOS, us
 
 ## Uso
 
-Escolha uma ferramenta à esquerda, desenhe no canvas e veja o código à direita. Salve o projeto pelo menu **Arquivo** ou exporte um programa PyOpenGL executável. Consulte [atalhos](docs/shortcuts.md), [arquitetura](docs/architecture.md), [gerador](docs/code-generator.md) e [formato do projeto](docs/project-format.md).
+Escolha uma ferramenta à esquerda, desenhe no canvas e veja o código à direita. Edite cores, coordenadas e transformações suportadas no código para atualizar o desenho. Salve pelo menu **Arquivo** ou exporte um programa PyOpenGL executável. Consulte [atalhos](docs/shortcuts.md), [arquitetura](docs/architecture.md), [sincronização](docs/bidirectional-sync.md), [OpenGL suportado](docs/supported-opengl.md), [gerador](docs/code-generator.md) e [formato](docs/project-format.md).
 
 ## Desenvolvimento
 
@@ -39,7 +40,6 @@ O código usa `src/glsketch`, com módulos separados para domínio, UI, geraçã
 ## Roadmap
 
 - v0.2: polígonos, layers avançadas, referência, undo/redo e edição de vértices.
-- v0.3: parser seguro e sincronização código → desenho.
 - v1.0: produto refinado, exemplos e documentação completa.
 
 Licenciado sob [MIT](LICENSE).

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "glsketch-studio"
-version = "0.2.0"
+version = "0.3.0"
 description = "Visual 2D editor with bidirectional Python/PyOpenGL code synchronization."
 readme = "README.md"
 requires-python = ">=3.12"
