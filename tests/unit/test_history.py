@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from glsketch.commands import History
+from glsketch.commands import History, SceneHistory
 
 
 @dataclass
@@ -25,3 +25,12 @@ def test_history_undo_redo() -> None:
     assert values == []
     assert history.redo()
     assert values == [3]
+
+
+def test_scene_history_discards_redo_branch() -> None:
+    history = SceneHistory({"value": 1})
+    history.checkpoint({"value": 2})
+    assert history.undo() == {"value": 1}
+    history.checkpoint({"value": 3})
+    assert history.redo() is None
+    assert history.undo() == {"value": 1}

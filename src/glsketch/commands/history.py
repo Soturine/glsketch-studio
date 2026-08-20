@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class Command(Protocol):
@@ -49,3 +50,31 @@ class History:
     @property
     def redo_label(self) -> str | None:
         return self._redo[-1].label if self._redo else None
+
+
+class SceneHistory:
+    """Snapshot history used at the UI transaction boundary."""
+
+    def __init__(self, initial: dict[str, Any]) -> None:
+        self._states = [deepcopy(initial)]
+        self._index = 0
+
+    def checkpoint(self, state: dict[str, Any]) -> None:
+        snapshot = deepcopy(state)
+        if snapshot == self._states[self._index]:
+            return
+        del self._states[self._index + 1 :]
+        self._states.append(snapshot)
+        self._index += 1
+
+    def undo(self) -> dict[str, Any] | None:
+        if self._index == 0:
+            return None
+        self._index -= 1
+        return deepcopy(self._states[self._index])
+
+    def redo(self) -> dict[str, Any] | None:
+        if self._index >= len(self._states) - 1:
+            return None
+        self._index += 1
+        return deepcopy(self._states[self._index])

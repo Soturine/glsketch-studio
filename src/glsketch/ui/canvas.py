@@ -40,12 +40,14 @@ class CanvasView(QGraphicsView):
         self._tool = "select"
         self._start: QPointF | None = None
         self._pan_start: QPointF | None = None
+        self._pending_points: list[Point] = []
         self._items: dict[str, QGraphicsItem] = {}
         self.graphics.selectionChanged.connect(self._selection_changed)
         self.refresh()
 
     def set_tool(self, tool: str) -> None:
         self._tool = tool
+        self._pending_points.clear()
         self.setDragMode(
             QGraphicsView.DragMode.RubberBandDrag
             if tool == "select"
@@ -113,16 +115,17 @@ class CanvasView(QGraphicsView):
             item.setBrush(fill)
             if obj.vertices:
                 item.setPos(_qt_point(obj.vertices[0]))
-        elif obj.kind == ObjectKind.ELLIPSE:
+        elif obj.kind in {ObjectKind.ELLIPSE, ObjectKind.LINE_STRIP}:
             path = QPainterPath()
             points = [_qt_point(point) for point in obj.vertices]
             if points:
                 path.moveTo(points[0])
                 for point in points[1:]:
                     path.lineTo(point)
-                path.closeSubpath()
+                if obj.kind == ObjectKind.ELLIPSE:
+                    path.closeSubpath()
             item = QGraphicsPathItem(path)
-            item.setBrush(fill)
+            item.setBrush(fill if obj.kind == ObjectKind.ELLIPSE else Qt.BrushStyle.NoBrush)
             item.setPen(pen)
         else:
             polygon = QPolygonF([_qt_point(point) for point in obj.vertices])
@@ -190,6 +193,15 @@ class CanvasView(QGraphicsView):
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
+        if (
+            self._tool in {"polygon", "line_strip", "line_loop"}
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            point = self._model_point(event)
+            if not self._pending_points or point != self._pending_points[-1]:
+                self._pending_points.append(point)
+            self.viewport().update()
+            return
         if self._tool != "select" and event.button() == Qt.MouseButton.LeftButton:
             self._start = self.mapToScene(event.position().toPoint())
             return
@@ -240,6 +252,34 @@ class CanvasView(QGraphicsView):
         if moved:
             self.model_changed.emit()
             self.refresh()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if self._tool in {"polygon", "line_strip", "line_loop"}:
+            self._finish_pending()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+            self._finish_pending()
+            return
+        if event.key() == Qt.Key.Key_Escape and self._pending_points:
+            self._pending_points.clear()
+            self.viewport().update()
+            return
+        super().keyPressEvent(event)
+
+    def _finish_pending(self) -> None:
+        minimum = 3 if self._tool == "polygon" else 2
+        if len(self._pending_points) >= minimum:
+            kind = {
+                "polygon": ObjectKind.POLYGON,
+                "line_strip": ObjectKind.LINE_STRIP,
+                "line_loop": ObjectKind.LINE_LOOP,
+            }[self._tool]
+            self.object_created.emit(SceneObject.create(kind, self._pending_points))
+        self._pending_points = []
+        self.viewport().update()
 
     def wheelEvent(self, event) -> None:  # noqa: N802
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
