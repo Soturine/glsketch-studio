@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -15,11 +15,13 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStyle,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -35,6 +37,8 @@ from glsketch.templates import TEMPLATE_NAMES, create_template
 from glsketch.ui.canvas import CanvasView
 from glsketch.ui.code_editor import CodeEditor
 from glsketch.ui.dialogs import ExportDialog, PreviewDialog, ReferenceDialog
+from glsketch.ui.theme import APP_STYLESHEET
+from glsketch.ui.tool_icons import tool_icon
 
 
 class MainWindow(QMainWindow):
@@ -50,7 +54,9 @@ class MainWindow(QMainWindow):
         self._tool_shortcuts: list[QShortcut] = []
         self._preview_dialogs: list[PreviewDialog] = []
         self.setWindowTitle("GLSketch Studio — Projeto sem título")
+        self.setMinimumSize(1100, 700)
         self.resize(1440, 900)
+        self.setStyleSheet(APP_STYLESHEET)
         self._actions: dict[str, QAction] = {}
         self._build_ui()
         self._build_actions()
@@ -68,6 +74,9 @@ class MainWindow(QMainWindow):
         self.canvas.text_requested.connect(self._add_text_at)
 
         self.tools = QListWidget()
+        self.tools.setObjectName("ToolPalette")
+        self.tools.setAccessibleName("Ferramentas de desenho")
+        self.tools.setToolTip("Escolha uma ferramenta e desenhe diretamente no canvas OpenGL")
         for label, value, shortcut in (
             ("Selecionar", "select", "V"),
             ("Linha", "line", "L"),
@@ -82,20 +91,43 @@ class MainWindow(QMainWindow):
             ("Contorno", "line_loop", "O"),
             ("Texto", "text", "X"),
         ):
-            self.tools.addItem(f"{label}   {shortcut}")
-            self.tools.item(self.tools.count() - 1).setData(Qt.ItemDataRole.UserRole, value)
+            self.tools.addItem(label)
+            item = self.tools.item(self.tools.count() - 1)
+            item.setIcon(tool_icon(value))
+            item.setData(Qt.ItemDataRole.UserRole, value)
+            item.setToolTip(f"{label} — atalho {shortcut}")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.tools.setViewMode(QListView.ViewMode.IconMode)
+        self.tools.setResizeMode(QListView.ResizeMode.Adjust)
+        self.tools.setMovement(QListView.Movement.Static)
+        self.tools.setIconSize(QSize(38, 38))
+        self.tools.setGridSize(QSize(82, 70))
+        self.tools.setMinimumHeight(320)
+        self.tools.setSpacing(3)
+        self.tools.setWordWrap(True)
         self.tools.setCurrentRow(0)
         self.tools.currentItemChanged.connect(
             lambda current, _previous: self.canvas.set_tool(current.data(Qt.ItemDataRole.UserRole))
         )
 
         self.layers = QListWidget()
+        self.layers.setAccessibleName("Camadas do desenho")
         self.layers.currentItemChanged.connect(self._layer_selected)
         left = QWidget()
         left_layout = QVBoxLayout(left)
-        left_layout.addWidget(QLabel("Ferramentas"))
+        welcome = QLabel(
+            "1. Escolha uma forma.\n2. Arraste no canvas.\n3. Edite pelas alças ou pelo código."
+        )
+        welcome.setObjectName("WelcomeCard")
+        welcome.setWordWrap(True)
+        left_layout.addWidget(welcome)
+        tools_heading = QLabel("Ferramentas")
+        tools_heading.setObjectName("SectionHeading")
+        left_layout.addWidget(tools_heading)
         left_layout.addWidget(self.tools)
-        left_layout.addWidget(QLabel("Camadas"))
+        layers_heading = QLabel("Camadas")
+        layers_heading.setObjectName("SectionHeading")
+        left_layout.addWidget(layers_heading)
         left_layout.addWidget(self.layers, 1)
 
         self.code = CodeEditor()
@@ -181,7 +213,7 @@ class MainWindow(QMainWindow):
         root.addWidget(left)
         root.addWidget(center)
         root.addWidget(right)
-        root.setSizes([190, 800, 450])
+        root.setSizes([220, 800, 450])
         self.setCentralWidget(root)
 
     @staticmethod
@@ -236,7 +268,17 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action("Alternar snap", self.toggle_snap))
         toolbar = QToolBar("Principal")
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(22, 22))
         self.addToolBar(toolbar)
+        action_icons = {
+            "Novo": QStyle.StandardPixmap.SP_FileIcon,
+            "Abrir…": QStyle.StandardPixmap.SP_DialogOpenButton,
+            "Salvar": QStyle.StandardPixmap.SP_DialogSaveButton,
+            "Exportar Python…": QStyle.StandardPixmap.SP_ArrowDown,
+            "Preview OpenGL": QStyle.StandardPixmap.SP_MediaPlay,
+        }
+        for name, standard_icon in action_icons.items():
+            self._actions[name].setIcon(self.style().standardIcon(standard_icon))
         for name in ("Novo", "Abrir…", "Salvar", "Exportar Python…", "Preview OpenGL"):
             toolbar.addAction(self._actions[name])
         for row, key in enumerate(("V", "L", "R", "Q", "T", "E", "S", "F", "P", "I", "O", "X")):

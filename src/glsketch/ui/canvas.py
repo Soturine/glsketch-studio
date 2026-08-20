@@ -434,6 +434,8 @@ class OpenGLCanvas(QOpenGLWidget):
     def refresh(self, select_id: str | None = None) -> None:
         if select_id is not None:
             self._selected_id = select_id
+            if self.model.find(select_id):
+                self.object_selected.emit(select_id)
         self.update()
 
     def selected_object_id(self) -> str | None:
