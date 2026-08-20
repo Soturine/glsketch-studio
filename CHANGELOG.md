@@ -2,7 +2,7 @@
 
 Formato inspirado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e versionamento SemVer.
 
-## [Unreleased]
+## [1.0.0] - 2026-08-20
 
 ### Changed
 
@@ -13,6 +13,26 @@ Formato inspirado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e 
 ### Added
 
 - Testes de conformidade para canvas e exportação exclusivamente OpenGL.
+- Lápis livre, quadrado, círculo, estrela e texto posicionado no canvas.
+- Preenchimento/borda opcionais, cores separadas e espessura.
+- Resize por alça e deformação por vértices.
+- Templates, exemplos e preview controlável em subprocesso.
+- Launcher Windows com instalação automática e workflow de pacote portátil.
+- Opções de escopo, marcadores, comentários e coordenadas na exportação.
+- Testes de UI, performance com 500 objetos e projetos de exemplo.
+- Paleta premium com ícones vetoriais próprios para todas as ferramentas.
+
+### Fixed
+
+- Round-trip de texto, polígonos côncavos e estilos de forma.
+- Seleção do canvas OpenGL agora atualiza propriedades e bloco de código.
+- Estrelas orientadas corretamente e trianguladas no canvas e no código gerado.
+
+### Known limitations
+
+- Python arbitrário permanece somente código e nunca é executado pelo parser.
+- Autosave/recovery não sobrescreve projetos: a v1 prioriza salvamento explícito confiável.
+- O editor numérico configura a imagem de referência mais recentemente importada.
 
 ## [0.3.0] - 2026-08-20
 
