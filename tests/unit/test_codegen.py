@@ -32,6 +32,6 @@ def test_concave_polygon_uses_triangles() -> None:
         ObjectKind.POLYGON,
         [Point(0, 0), Point(4, 0), Point(4, 4), Point(2, 2), Point(0, 4)],
     )
-    code = generate_code(Scene(objects=[polygon]))
+    code = generate_code(Scene(objects=[polygon]), ExportOptions(markers=False))
     assert "glBegin(GL_TRIANGLES)" in code
     assert "Polígono côncavo triangulado" in code

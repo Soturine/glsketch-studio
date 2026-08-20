@@ -78,6 +78,30 @@ def test_layer_order_round_trip() -> None:
     assert [obj.id for obj in result.scene.objects] == [first.id, second.id]
 
 
+def test_text_round_trip() -> None:
+    text = SceneObject.create(ObjectKind.TEXT, [Point(12, 34)], name="Título")
+    text.text = "Olá"
+    result = parse_code(generate_code(Scene(objects=[text])))
+    assert result.valid and result.scene
+    parsed = result.scene.objects[0]
+    assert (parsed.kind, parsed.vertices, parsed.text) == (
+        ObjectKind.TEXT,
+        [Point(12, 34)],
+        "Olá",
+    )
+
+
+def test_concave_polygon_keeps_kind_after_triangulation() -> None:
+    polygon = SceneObject.create(
+        ObjectKind.POLYGON,
+        [Point(0, 0), Point(4, 0), Point(4, 4), Point(2, 2), Point(0, 4)],
+    )
+    result = parse_code(generate_code(Scene(objects=[polygon])))
+    assert result.valid and result.scene
+    assert result.scene.objects[0].kind == ObjectKind.POLYGON
+    assert result.scene.objects[0].vertices == polygon.vertices
+
+
 def test_clean_code_without_markers_is_parsed() -> None:
     code = """
 def Desenha():

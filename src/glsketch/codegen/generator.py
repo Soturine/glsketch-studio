@@ -41,7 +41,7 @@ def _vertex(point: Point, prefer_integers: bool) -> str:
 def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> list[str]:
     lines: list[str] = []
     if markers:
-        lines.append(f'# <glsketch-object id="{obj.id}" name="{obj.name}">')
+        lines.append(f'# <glsketch-object id="{obj.id}" name="{obj.name}" type="{obj.kind.value}">')
     color = (
         obj.stroke_color
         if obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
@@ -64,7 +64,7 @@ def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> lis
     else:
         primitive = _PRIMITIVES[obj.kind]
         vertices = obj.vertices
-        if obj.kind == ObjectKind.POLYGON and not is_convex(vertices):
+        if obj.kind == ObjectKind.POLYGON and not is_convex(vertices) and not markers:
             primitive = "GL_TRIANGLES"
             vertices = [point for triangle in triangulate(vertices) for point in triangle]
             lines.append("# Polígono côncavo triangulado pelo GLSketch")

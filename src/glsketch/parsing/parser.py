@@ -38,7 +38,10 @@ class ParseResult:
         )
 
 
-_START = re.compile(r'^\s*#\s*<glsketch-object\s+id="(?P<id>[^"]+)"\s+name="(?P<name>[^"]*)">\s*$')
+_START = re.compile(
+    r'^\s*#\s*<glsketch-object\s+id="(?P<id>[^"]+)"\s+name="(?P<name>[^"]*)"'
+    r'(?:\s+type="(?P<type>[^"]+)")?>\s*$'
+)
 _END = re.compile(r"^\s*#\s*</glsketch-object>\s*$")
 _KINDS = {
     "GL_LINES": ObjectKind.LINE,
@@ -61,6 +64,7 @@ _SUPPORTED = {
     "glRotatef",
     "glScalef",
     "glLineWidth",
+    "glRasterPos2f",
 }
 
 
@@ -83,7 +87,11 @@ def _call(statement: ast.stmt) -> tuple[str, list[ast.expr]] | None:
 
 
 def _parse_block(
-    statements: list[ast.stmt], object_id: str, name: str, line_offset: int
+    statements: list[ast.stmt],
+    object_id: str,
+    name: str,
+    line_offset: int,
+    type_hint: str | None = None,
 ) -> tuple[SceneObject | None, list[Diagnostic], list[int]]:
     diagnostics: list[Diagnostic] = []
     unsupported: list[int] = []
@@ -94,9 +102,18 @@ def _parse_block(
     translate_x = translate_y = rotation = 0.0
     scale_x = scale_y = 1.0
     ended = False
+    raster_position: Point | None = None
+    text_value = ""
     for statement in statements:
         parsed = _call(statement)
         line = line_offset + statement.lineno - 1
+        if (
+            isinstance(statement, ast.For)
+            and isinstance(statement.iter, ast.Constant)
+            and isinstance(statement.iter.value, str)
+        ):
+            text_value = statement.iter.value
+            continue
         if parsed is None or parsed[0] not in _SUPPORTED:
             unsupported.append(line)
             diagnostics.append(
@@ -109,6 +126,8 @@ def _parse_block(
                 color = Color(*(_number(arg) for arg in args))
             elif function == "glLineWidth" and len(args) == 1:
                 stroke_width = _number(args[0])
+            elif function == "glRasterPos2f" and len(args) == 2:
+                raster_position = Point(_number(args[0]), _number(args[1]))
             elif function == "glBegin" and len(args) == 1 and isinstance(args[0], ast.Name):
                 primitive = args[0].id
                 ended = False
@@ -134,6 +153,17 @@ def _parse_block(
                 )
         except ValueError as error:
             diagnostics.append(Diagnostic(Severity.ERROR, f"{function}: {error}", line))
+    if raster_position is not None and primitive is None:
+        obj = SceneObject(
+            id=object_id,
+            name=name or "Texto",
+            kind=ObjectKind.TEXT,
+            vertices=[raster_position],
+            fill_color=color,
+            stroke_color=color,
+            text=text_value,
+        )
+        return obj, diagnostics, unsupported
     if primitive is None:
         diagnostics.append(Diagnostic(Severity.ERROR, "Bloco sem glBegin suportado", line_offset))
         return None, diagnostics, unsupported
@@ -145,6 +175,10 @@ def _parse_block(
     if not ended:
         diagnostics.append(Diagnostic(Severity.ERROR, f"{primitive} sem glEnd()", line_offset))
     kind = _KINDS[primitive]
+    if type_hint in {item.value for item in ObjectKind}:
+        hinted = ObjectKind(type_hint)
+        if hinted == ObjectKind.POLYGON and primitive == "GL_TRIANGLES":
+            kind = hinted
     if kind == ObjectKind.ELLIPSE and len(vertices) >= 3:
         vertices = vertices[1:]
         if len(vertices) > 1 and vertices[-1] == vertices[0]:
@@ -165,17 +199,19 @@ def _parse_block(
     return obj, diagnostics, unsupported
 
 
-def _marked_blocks(code: str) -> list[tuple[str, str, int, int, str]]:
+def _marked_blocks(code: str) -> list[tuple[str, str, str | None, int, int, str]]:
     lines = code.splitlines()
     blocks = []
-    current: tuple[str, str, int] | None = None
+    current: tuple[str, str, str | None, int] | None = None
     for index, line in enumerate(lines, start=1):
         start = _START.match(line)
         if start:
-            current = (start.group("id"), start.group("name"), index)
+            current = (start.group("id"), start.group("name"), start.group("type"), index)
         elif _END.match(line) and current:
-            object_id, name, first = current
-            blocks.append((object_id, name, first, index, "\n".join(lines[first : index - 1])))
+            object_id, name, type_hint, first = current
+            blocks.append(
+                (object_id, name, type_hint, first, index, "\n".join(lines[first : index - 1]))
+            )
             current = None
     return blocks
 
@@ -201,7 +237,7 @@ def parse_code(code: str) -> ParseResult:
     unsupported: list[int] = []
     blocks = _marked_blocks(code)
     if blocks:
-        for object_id, name, first, last, source in blocks:
+        for object_id, name, type_hint, first, last, source in blocks:
             ranges[object_id] = (first, last)
             try:
                 block_tree = ast.parse(textwrap.dedent(source))
@@ -216,7 +252,7 @@ def parse_code(code: str) -> ParseResult:
                 )
                 continue
             obj, block_diagnostics, block_unsupported = _parse_block(
-                block_tree.body, object_id, name, first + 1
+                block_tree.body, object_id, name, first + 1, type_hint
             )
             diagnostics.extend(block_diagnostics)
             unsupported.extend(block_unsupported)
