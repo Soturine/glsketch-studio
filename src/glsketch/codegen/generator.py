@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from glsketch.domain.geometry import is_convex, triangulate
 from glsketch.domain.objects import ObjectKind, Point, SceneObject
 from glsketch.domain.scene import Scene
 
@@ -61,12 +62,18 @@ def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> lis
         lines.append(f"for char in {obj.text!r}:")
         lines.append("    glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(char))")
     else:
-        lines.append(f"glBegin({_PRIMITIVES[obj.kind]})")
+        primitive = _PRIMITIVES[obj.kind]
+        vertices = obj.vertices
+        if obj.kind == ObjectKind.POLYGON and not is_convex(vertices):
+            primitive = "GL_TRIANGLES"
+            vertices = [point for triangle in triangulate(vertices) for point in triangle]
+            lines.append("# Polígono côncavo triangulado pelo GLSketch")
+        lines.append(f"glBegin({primitive})")
         if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
             cx = sum(point.x for point in obj.vertices) / len(obj.vertices)
             cy = sum(point.y for point in obj.vertices) / len(obj.vertices)
             lines.append(_vertex(Point(cx, cy), prefer_integers))
-        lines.extend(_vertex(point, prefer_integers) for point in obj.vertices)
+        lines.extend(_vertex(point, prefer_integers) for point in vertices)
         if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
             lines.append(_vertex(obj.vertices[0], prefer_integers))
         lines.append("glEnd()")
