@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "glsketch-studio"
+version = "0.1.0"
+description = "Visual 2D editor with bidirectional Python/PyOpenGL code synchronization."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {file = "LICENSE"}
+authors = [{name = "Rafael Souza"}]
+dependencies = [
+  "PySide6>=6.8,<7",
+  "PyOpenGL>=3.1.7,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "pytest>=8.3",
+  "pytest-cov>=6",
+  "ruff>=0.9",
+]
+build = ["pyinstaller>=6.11"]
+
+[project.scripts]
+glsketch = "glsketch.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/glsketch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --basetemp=.pytest-tmp"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
