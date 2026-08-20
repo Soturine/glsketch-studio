@@ -40,10 +40,16 @@ def create_template(name: str) -> Scene:
                     fill_color=Color.from_hex("#16A34A"),
                 ),
                 SceneObject.ellipse(
-                    Point(25, 50),
-                    Point(75, 90),
+                    Point(10, 52),
+                    Point(42, 86),
                     name="Elipse",
                     fill_color=Color.from_hex("#EAB308"),
+                ),
+                SceneObject.star(
+                    Point(58, 50),
+                    Point(92, 88),
+                    name="Estrela",
+                    fill_color=Color.from_hex("#A855F7"),
                 ),
             ]
         )

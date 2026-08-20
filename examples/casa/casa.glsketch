@@ -1,0 +1,13 @@
+{
+  "format": "glsketch",
+  "version": 1,
+  "title": "Casa básica",
+  "canvas": {"left": 0, "right": 100, "bottom": 0, "top": 100, "grid_size": 5, "show_grid": true, "snap_to_grid": true, "prefer_integers": true, "background": "#F8FAFC"},
+  "objects": [
+    {"id": "obj-casa-parede", "name": "Parede", "type": "rectangle", "visible": true, "locked": false, "z_order": 0, "vertices": [[25,15],[25,55],[75,55],[75,15]], "fill_color": [0.965,0.757,0.467,1], "stroke_color": [0.08,0.12,0.18,1], "stroke_width": 1, "fill_enabled": true, "stroke_enabled": true, "rotation": 0, "scale": [1,1], "text": "", "metadata": {}},
+    {"id": "obj-casa-telhado", "name": "Telhado", "type": "triangle", "visible": true, "locked": false, "z_order": 1, "vertices": [[20,55],[50,85],[80,55]], "fill_color": [0.761,0.255,0.231,1], "stroke_color": [0.08,0.12,0.18,1], "stroke_width": 1, "fill_enabled": true, "stroke_enabled": true, "rotation": 0, "scale": [1,1], "text": "", "metadata": {}},
+    {"id": "obj-casa-porta", "name": "Porta", "type": "rectangle", "visible": true, "locked": false, "z_order": 2, "vertices": [[43,15],[43,42],[57,42],[57,15]], "fill_color": [0.486,0.29,0.176,1], "stroke_color": [0.08,0.12,0.18,1], "stroke_width": 1, "fill_enabled": true, "stroke_enabled": true, "rotation": 0, "scale": [1,1], "text": "", "metadata": {}}
+  ],
+  "reference_images": []
+}
+

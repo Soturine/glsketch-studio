@@ -1,0 +1,9 @@
+{
+  "format": "glsketch",
+  "version": 1,
+  "title": "Lagoinha-SP — aguardando referência oficial",
+  "canvas": {"left": 0, "right": 150, "bottom": 0, "top": 100, "grid_size": 5, "show_grid": true, "snap_to_grid": true, "prefer_integers": true, "background": "#F8FAFC"},
+  "objects": [],
+  "reference_images": []
+}
+

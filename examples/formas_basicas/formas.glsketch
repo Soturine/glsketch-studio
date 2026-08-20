@@ -1,0 +1,12 @@
+{
+  "format": "glsketch",
+  "version": 1,
+  "title": "Formas geométricas",
+  "canvas": {"left": 0, "right": 100, "bottom": 0, "top": 100, "grid_size": 5, "show_grid": true, "snap_to_grid": true, "prefer_integers": false, "background": "#F8FAFC"},
+  "objects": [
+    {"id": "obj-forma-retangulo", "name": "Retângulo", "type": "rectangle", "visible": true, "locked": false, "z_order": 0, "vertices": [[10,10],[10,35],[40,35],[40,10]], "fill_color": [0.145,0.388,0.922,1], "stroke_color": [0.08,0.12,0.18,1], "stroke_width": 2, "fill_enabled": true, "stroke_enabled": true, "rotation": 0, "scale": [1,1], "text": "", "metadata": {}},
+    {"id": "obj-forma-estrela", "name": "Estrela", "type": "star", "visible": true, "locked": false, "z_order": 1, "vertices": [[70,50],[74.7,63.5],[89,63.8],[77.5,72.5],[81.8,86.2],[70,78],[58.2,86.2],[62.5,72.5],[51,63.8],[65.3,63.5]], "fill_color": [0.918,0.702,0.031,1], "stroke_color": [0.72,0.35,0.02,1], "stroke_width": 2, "fill_enabled": true, "stroke_enabled": true, "rotation": 0, "scale": [1,1], "text": "", "metadata": {}}
+  ],
+  "reference_images": []
+}
+
