@@ -86,6 +86,31 @@ def _call(statement: ast.stmt) -> tuple[str, list[ast.expr]] | None:
     return function.id, statement.value.args
 
 
+def _triangle_boundary(vertices: list[Point]) -> list[Point]:
+    """Recover an ordered polygon boundary from an ear-clipped triangle list."""
+    directed: list[tuple[Point, Point]] = []
+    counts: dict[frozenset[Point], int] = {}
+    for index in range(0, len(vertices) - 2, 3):
+        triangle = vertices[index : index + 3]
+        for start, end in zip(triangle, triangle[1:] + triangle[:1], strict=True):
+            edge = frozenset((start, end))
+            counts[edge] = counts.get(edge, 0) + 1
+            directed.append((start, end))
+    boundary_edges = [
+        (start, end) for start, end in directed if counts[frozenset((start, end))] == 1
+    ]
+    if len(boundary_edges) < 3:
+        return vertices
+    following = {start: end for start, end in boundary_edges}
+    result = [boundary_edges[0][0]]
+    while len(result) < len(boundary_edges):
+        next_point = following.get(result[-1])
+        if next_point is None or next_point == result[0]:
+            break
+        result.append(next_point)
+    return result if len(result) == len(boundary_edges) else vertices
+
+
 def _parse_block(
     statements: list[ast.stmt],
     object_id: str,
@@ -202,8 +227,14 @@ def _parse_block(
         )
         primary = fill_batch or stroke_batch or batches[0]
         kind = hinted or _KINDS[primary[0]]
-    geometry_batch = fill_batch or stroke_batch or batches[0]
+    geometry_batch = (
+        stroke_batch
+        if hinted in {ObjectKind.POLYGON, ObjectKind.STAR} and stroke_batch
+        else fill_batch or stroke_batch or batches[0]
+    )
     vertices = list(geometry_batch[1])
+    if hinted in {ObjectKind.POLYGON, ObjectKind.STAR} and geometry_batch[0] == "GL_TRIANGLES":
+        vertices = _triangle_boundary(vertices)
     if kind == ObjectKind.ELLIPSE and len(vertices) >= 3:
         vertices = vertices[1:]
         if len(vertices) > 1 and vertices[-1] == vertices[0]:

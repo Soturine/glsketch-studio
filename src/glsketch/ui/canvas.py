@@ -56,6 +56,7 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+from glsketch.domain.geometry import is_convex, triangulate
 from glsketch.domain.objects import ObjectKind, Point, SceneObject
 from glsketch.domain.scene import ReferenceImage, Scene
 
@@ -281,12 +282,21 @@ class OpenGLCanvas(QOpenGLWidget):
             line_kind = obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
             if obj.fill_enabled and not line_kind:
                 glColor3f(obj.fill_color.r, obj.fill_color.g, obj.fill_color.b)
-                glBegin(_PRIMITIVES[obj.kind])
+                fill_vertices = obj.vertices
+                primitive = _PRIMITIVES[obj.kind]
+                if obj.kind in {ObjectKind.POLYGON, ObjectKind.STAR} and not is_convex(
+                    obj.vertices
+                ):
+                    primitive = GL_TRIANGLES
+                    fill_vertices = [
+                        point for triangle in triangulate(obj.vertices) for point in triangle
+                    ]
+                glBegin(primitive)
                 if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
                     center_x = sum(point.x for point in obj.vertices) / len(obj.vertices)
                     center_y = sum(point.y for point in obj.vertices) / len(obj.vertices)
                     glVertex2f(center_x, center_y)
-                for point in obj.vertices:
+                for point in fill_vertices:
                     glVertex2f(point.x, point.y)
                 if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
                     glVertex2f(obj.vertices[0].x, obj.vertices[0].y)

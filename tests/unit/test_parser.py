@@ -116,6 +116,22 @@ def test_star_and_fill_style_round_trip() -> None:
     assert parsed.stroke_width == 3
 
 
+def test_filled_star_is_triangulated_and_round_trips() -> None:
+    star = SceneObject.star(Point(10, 10), Point(90, 90), name="Estrela")
+    code = generate_code(Scene(objects=[star]))
+    assert "glBegin(GL_TRIANGLES)" in code
+    assert "glBegin(GL_POLYGON)" not in code
+    result = parse_code(code)
+    assert result.valid and result.scene
+    actual = [(point.x, point.y) for point in result.scene.objects[0].vertices]
+    expected = [(point.x, point.y) for point in star.vertices]
+    assert len(actual) == len(expected)
+    assert all(
+        abs(actual_x - expected_x) < 1e-5 and abs(actual_y - expected_y) < 1e-5
+        for (actual_x, actual_y), (expected_x, expected_y) in zip(actual, expected, strict=True)
+    )
+
+
 def test_clean_code_without_markers_is_parsed() -> None:
     code = """
 def Desenha():

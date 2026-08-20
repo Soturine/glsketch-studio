@@ -60,11 +60,7 @@ def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> lis
     else:
         primitive = _PRIMITIVES[obj.kind]
         vertices = obj.vertices
-        if (
-            obj.kind in {ObjectKind.POLYGON, ObjectKind.STAR}
-            and not is_convex(vertices)
-            and not markers
-        ):
+        if obj.kind in {ObjectKind.POLYGON, ObjectKind.STAR} and not is_convex(vertices):
             primitive = "GL_TRIANGLES"
             vertices = [point for triangle in triangulate(vertices) for point in triangle]
             lines.append("# Polígono côncavo triangulado pelo GLSketch")

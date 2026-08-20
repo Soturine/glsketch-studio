@@ -132,7 +132,8 @@ class SceneObject:
         outer_x, outer_y = abs(end.x - start.x) / 2, abs(end.y - start.y) / 2
         vertices = []
         for index in range(points * 2):
-            angle = -pi / 2 + index * pi / points
+            # OpenGL's world Y axis points upward, so +pi/2 places the main tip at the top.
+            angle = pi / 2 + index * pi / points
             radius = 1.0 if index % 2 == 0 else 0.42
             vertices.append(
                 Point(cx + outer_x * radius * cos(angle), cy + outer_y * radius * sin(angle))
