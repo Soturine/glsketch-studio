@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QKeySequence
+from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -34,8 +31,10 @@ from glsketch.domain.objects import Color, ObjectKind, Point, SceneObject
 from glsketch.domain.scene import ReferenceImage, Scene
 from glsketch.persistence import load_project, save_project
 from glsketch.sync import ChangeOrigin, SynchronizationController
+from glsketch.templates import TEMPLATE_NAMES, create_template
 from glsketch.ui.canvas import CanvasView
 from glsketch.ui.code_editor import CodeEditor
+from glsketch.ui.dialogs import ExportDialog, PreviewDialog, ReferenceDialog
 
 
 class MainWindow(QMainWindow):
@@ -48,6 +47,8 @@ class MainWindow(QMainWindow):
         self.sync = SynchronizationController(self.scene_model)
         self.block_ranges: dict[str, tuple[int, int]] = {}
         self._syncing_code = False
+        self._tool_shortcuts: list[QShortcut] = []
+        self._preview_dialogs: list[PreviewDialog] = []
         self.setWindowTitle("GLSketch Studio — Projeto sem título")
         self.resize(1440, 900)
         self._actions: dict[str, QAction] = {}
@@ -64,17 +65,22 @@ class MainWindow(QMainWindow):
         self.canvas.cursor_position.connect(
             lambda x, y: self.statusBar().showMessage(f"OpenGL: x={x:.2f}, y={y:.2f}")
         )
+        self.canvas.text_requested.connect(self._add_text_at)
 
         self.tools = QListWidget()
         for label, value, shortcut in (
             ("Selecionar", "select", "V"),
             ("Linha", "line", "L"),
             ("Retângulo", "rectangle", "R"),
+            ("Quadrado", "square", "Q"),
             ("Triângulo", "triangle", "T"),
-            ("Elipse", "ellipse", "E"),
+            ("Círculo / Elipse", "ellipse", "E"),
+            ("Estrela", "star", "S"),
+            ("Lápis livre", "pencil", "F"),
             ("Polígono", "polygon", "P"),
             ("Linha contínua", "line_strip", "I"),
             ("Contorno", "line_loop", "O"),
+            ("Texto", "text", "X"),
         ):
             self.tools.addItem(f"{label}   {shortcut}")
             self.tools.item(self.tools.count() - 1).setData(Qt.ItemDataRole.UserRole, value)
@@ -116,33 +122,54 @@ class MainWindow(QMainWindow):
         self.name_edit = QLineEdit()
         self.x_spin = self._spin()
         self.y_spin = self._spin()
+        self.width_spin = self._spin(0, 10000)
+        self.height_spin = self._spin(0, 10000)
         self.rotation_spin = self._spin(-360, 360)
         self.scale_x_spin = self._spin(0.01, 100, 1.0)
         self.scale_y_spin = self._spin(0.01, 100, 1.0)
         self.visible_check = QCheckBox()
         self.locked_check = QCheckBox()
+        self.fill_enabled_check = QCheckBox("Preenchida")
+        self.stroke_enabled_check = QCheckBox("Com borda")
         self.fill_button = QPushButton("Escolher cor…")
         self.fill_button.clicked.connect(self._choose_color)
+        self.stroke_button = QPushButton("Escolher cor…")
+        self.stroke_button.clicked.connect(self._choose_stroke_color)
+        self.stroke_width_spin = self._spin(0.1, 100, 1.0)
+        self.vertices_button = QPushButton("Editar vértices…")
+        self.vertices_button.clicked.connect(self.edit_vertices)
         self.name_edit.editingFinished.connect(self._apply_properties)
         for control in (
             self.x_spin,
             self.y_spin,
+            self.width_spin,
+            self.height_spin,
             self.rotation_spin,
             self.scale_x_spin,
             self.scale_y_spin,
+            self.stroke_width_spin,
         ):
             control.editingFinished.connect(self._apply_properties)
         self.visible_check.toggled.connect(self._apply_properties)
         self.locked_check.toggled.connect(self._apply_properties)
+        self.fill_enabled_check.toggled.connect(self._apply_properties)
+        self.stroke_enabled_check.toggled.connect(self._apply_properties)
         self.properties = QWidget()
         form = QFormLayout(self.properties)
         form.addRow("Nome", self.name_edit)
         form.addRow("X", self.x_spin)
         form.addRow("Y", self.y_spin)
+        form.addRow("Largura", self.width_spin)
+        form.addRow("Altura", self.height_spin)
         form.addRow("Rotação", self.rotation_spin)
         form.addRow("Escala X", self.scale_x_spin)
         form.addRow("Escala Y", self.scale_y_spin)
         form.addRow("Fill", self.fill_button)
+        form.addRow("Preenchimento", self.fill_enabled_check)
+        form.addRow("Stroke", self.stroke_button)
+        form.addRow("Borda", self.stroke_enabled_check)
+        form.addRow("Espessura", self.stroke_width_spin)
+        form.addRow("Geometria", self.vertices_button)
         form.addRow("Visível", self.visible_check)
         form.addRow("Bloqueado", self.locked_check)
 
@@ -191,9 +218,13 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._action("Colar", self.paste, "Ctrl+V"))
         edit_menu.addAction(self._action("Duplicar", self.duplicate, "Ctrl+D"))
         edit_menu.addAction(self._action("Excluir", self.delete_selected, "Delete"))
+        edit_menu.addAction(self._action("Editar vértices…", self.edit_vertices))
         insert_menu = self.menuBar().addMenu("&Inserir")
         insert_menu.addAction(self._action("Texto…", self.add_text))
         insert_menu.addAction(self._action("Imagem de referência…", self.add_reference_image))
+        insert_menu.addAction(
+            self._action("Configurar imagem de referência…", self.edit_reference_image)
+        )
         layer_menu = self.menuBar().addMenu("&Camada")
         layer_menu.addAction(self._action("Trazer para frente", lambda: self.move_layer(1)))
         layer_menu.addAction(self._action("Enviar para trás", lambda: self.move_layer(-1)))
@@ -208,6 +239,10 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
         for name in ("Novo", "Abrir…", "Salvar", "Exportar Python…", "Preview OpenGL"):
             toolbar.addAction(self._actions[name])
+        for row, key in enumerate(("V", "L", "R", "Q", "T", "E", "S", "F", "P", "I", "O", "X")):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(lambda row=row: self.tools.setCurrentRow(row))
+            self._tool_shortcuts.append(shortcut)
 
     def _add_object(self, obj: SceneObject) -> None:
         self.scene_model.add(obj)
@@ -303,23 +338,38 @@ class MainWindow(QMainWindow):
                 self.name_edit,
                 self.x_spin,
                 self.y_spin,
+                self.width_spin,
+                self.height_spin,
                 self.rotation_spin,
                 self.scale_x_spin,
                 self.scale_y_spin,
+                self.stroke_width_spin,
                 self.visible_check,
                 self.locked_check,
+                self.fill_enabled_check,
+                self.stroke_enabled_check,
             ):
                 control.blockSignals(True)
             self.name_edit.setText(obj.name)
             if obj.vertices:
-                self.x_spin.setValue(min(point.x for point in obj.vertices))
-                self.y_spin.setValue(min(point.y for point in obj.vertices))
+                left = min(point.x for point in obj.vertices)
+                right = max(point.x for point in obj.vertices)
+                bottom = min(point.y for point in obj.vertices)
+                top = max(point.y for point in obj.vertices)
+                self.x_spin.setValue(left)
+                self.y_spin.setValue(bottom)
+                self.width_spin.setValue(right - left)
+                self.height_spin.setValue(top - bottom)
             self.rotation_spin.setValue(obj.rotation)
             self.scale_x_spin.setValue(obj.scale_x)
             self.scale_y_spin.setValue(obj.scale_y)
             self.visible_check.setChecked(obj.visible)
             self.locked_check.setChecked(obj.locked)
+            self.fill_enabled_check.setChecked(obj.fill_enabled)
+            self.stroke_enabled_check.setChecked(obj.stroke_enabled)
+            self.stroke_width_spin.setValue(obj.stroke_width)
             self.fill_button.setStyleSheet(f"background: {obj.fill_color.to_hex()}")
+            self.stroke_button.setStyleSheet(f"background: {obj.stroke_color.to_hex()}")
             block = self.block_ranges.get(obj.id)
             if block:
                 self.code.highlight_range(*block)
@@ -327,11 +377,16 @@ class MainWindow(QMainWindow):
                 self.name_edit,
                 self.x_spin,
                 self.y_spin,
+                self.width_spin,
+                self.height_spin,
                 self.rotation_spin,
                 self.scale_x_spin,
                 self.scale_y_spin,
+                self.stroke_width_spin,
                 self.visible_check,
                 self.locked_check,
+                self.fill_enabled_check,
+                self.stroke_enabled_check,
             ):
                 control.blockSignals(False)
 
@@ -355,12 +410,36 @@ class MainWindow(QMainWindow):
             if dx or dy:
                 obj.vertices = [Point(point.x + dx, point.y + dy) for point in obj.vertices]
                 changed = True
+            current_width = max(point.x for point in obj.vertices) - min(
+                point.x for point in obj.vertices
+            )
+            current_height = max(point.y for point in obj.vertices) - min(
+                point.y for point in obj.vertices
+            )
+            desired_width, desired_height = self.width_spin.value(), self.height_spin.value()
+            if current_width and desired_width != current_width:
+                left = min(point.x for point in obj.vertices)
+                ratio = desired_width / current_width
+                obj.vertices = [
+                    Point(left + (point.x - left) * ratio, point.y) for point in obj.vertices
+                ]
+                changed = True
+            if current_height and desired_height != current_height:
+                bottom = min(point.y for point in obj.vertices)
+                ratio = desired_height / current_height
+                obj.vertices = [
+                    Point(point.x, bottom + (point.y - bottom) * ratio) for point in obj.vertices
+                ]
+                changed = True
         values = (
             ("rotation", self.rotation_spin.value()),
             ("scale_x", self.scale_x_spin.value()),
             ("scale_y", self.scale_y_spin.value()),
             ("visible", self.visible_check.isChecked()),
             ("locked", self.locked_check.isChecked()),
+            ("stroke_width", self.stroke_width_spin.value()),
+            ("fill_enabled", self.fill_enabled_check.isChecked()),
+            ("stroke_enabled", self.stroke_enabled_check.isChecked()),
         )
         for attribute, value in values:
             if getattr(obj, attribute) != value:
@@ -377,6 +456,43 @@ class MainWindow(QMainWindow):
         if color.isValid():
             obj.fill_color = Color.from_hex(color.name())
             self._model_changed(obj.id)
+
+    def _choose_stroke_color(self) -> None:
+        obj = self.scene_model.find(self.canvas.selected_object_id() or "")
+        if not obj:
+            return
+        color = QColorDialog.getColor(QColor(obj.stroke_color.to_hex()), self, "Cor do contorno")
+        if color.isValid():
+            obj.stroke_color = Color.from_hex(color.name())
+            self._model_changed(obj.id)
+
+    def edit_vertices(self) -> None:
+        obj = self.scene_model.find(self.canvas.selected_object_id() or "")
+        if not obj or not obj.vertices or obj.locked:
+            return
+        current = "\n".join(f"{point.x:g}, {point.y:g}" for point in obj.vertices)
+        text, accepted = QInputDialog.getMultiLineText(
+            self,
+            "Editar vértices",
+            "Um vértice x, y por linha:",
+            current,
+        )
+        if not accepted:
+            return
+        try:
+            vertices = [
+                Point(*(float(value.strip()) for value in line.split(",", 1)))
+                for line in text.splitlines()
+                if line.strip()
+            ]
+        except (TypeError, ValueError):
+            QMessageBox.warning(self, "Vértices inválidos", "Use uma coordenada x, y por linha.")
+            return
+        if len(vertices) < (2 if obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP} else 1):
+            QMessageBox.warning(self, "Vértices insuficientes", "Adicione mais vértices.")
+            return
+        obj.vertices = vertices
+        self._model_changed(obj.id)
 
     def delete_selected(self) -> None:
         object_id = self.canvas.selected_object_id()
@@ -423,10 +539,14 @@ class MainWindow(QMainWindow):
         self._model_changed(checkpoint=False)
 
     def add_text(self) -> None:
+        self._add_text_at(10, 10)
+
+    def _add_text_at(self, x: float, y: float) -> None:
         text, accepted = QInputDialog.getText(self, "Inserir texto", "Texto")
         if accepted and text:
-            obj = SceneObject.create(ObjectKind.TEXT, [Point(10, 10)], name="Texto")
+            obj = SceneObject.create(ObjectKind.TEXT, [Point(x, y)], name="Texto")
             obj.text = text
+            obj.stroke_enabled = False
             self.scene_model.add(obj)
             self._model_changed(obj.id)
 
@@ -435,7 +555,45 @@ class MainWindow(QMainWindow):
             self, "Imagem de referência", "", "Imagens (*.png *.jpg *.jpeg *.webp)"
         )
         if filename:
-            self.scene_model.reference_images.append(ReferenceImage(filename))
+            image = QImage(filename)
+            if image.isNull():
+                QMessageBox.warning(self, "Imagem inválida", "O arquivo não pôde ser lido.")
+                return
+            opacity, accepted = QInputDialog.getDouble(
+                self, "Opacidade", "Opacidade (0 a 1)", 0.5, 0.0, 1.0, 2
+            )
+            if not accepted:
+                return
+            canvas = self.scene_model.canvas
+            available_width = canvas.right - canvas.left
+            available_height = canvas.top - canvas.bottom
+            ratio = image.width() / max(1, image.height())
+            width = available_width
+            height = width / ratio
+            if height > available_height:
+                height = available_height
+                width = height * ratio
+            self.scene_model.reference_images.append(
+                ReferenceImage(
+                    filename,
+                    x=canvas.left + (available_width - width) / 2,
+                    y=canvas.bottom + (available_height - height) / 2,
+                    width=width,
+                    height=height,
+                    opacity=opacity,
+                    locked=True,
+                )
+            )
+            self._model_changed()
+
+    def edit_reference_image(self) -> None:
+        if not self.scene_model.reference_images:
+            QMessageBox.information(self, "Sem referência", "Importe uma imagem de referência.")
+            return
+        reference = self.scene_model.reference_images[-1]
+        dialog = ReferenceDialog(reference, self)
+        if dialog.exec():
+            dialog.apply()
             self._model_changed()
 
     def move_layer(self, delta: int) -> None:
@@ -479,7 +637,12 @@ class MainWindow(QMainWindow):
     def new_project(self) -> None:
         if not self._confirm_discard():
             return
-        self.scene_model = Scene()
+        template, accepted = QInputDialog.getItem(
+            self, "Novo projeto", "Template", TEMPLATE_NAMES, 0, False
+        )
+        if not accepted:
+            return
+        self.scene_model = create_template(template)
         self.canvas.set_model(self.scene_model)
         self.history = SceneHistory(self.scene_model.to_dict())
         self.sync = SynchronizationController(self.scene_model)
@@ -530,6 +693,10 @@ class MainWindow(QMainWindow):
         return True
 
     def export_python(self) -> None:
+        selected_id = self.canvas.selected_object_id()
+        dialog = ExportDialog(bool(selected_id), self)
+        if not dialog.exec():
+            return
         filename, _ = QFileDialog.getSaveFileName(
             self, "Exportar Python", "desenho.py", "Python (*.py)"
         )
@@ -537,7 +704,8 @@ class MainWindow(QMainWindow):
             return
         try:
             Path(filename).write_text(
-                generate_code(self.scene_model, ExportOptions(markers=False)), encoding="utf-8"
+                generate_code(self.scene_model, dialog.export_options(selected_id)),
+                encoding="utf-8",
             )
         except OSError as error:
             QMessageBox.critical(self, "Não foi possível exportar", str(error))
@@ -545,15 +713,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Código exportado em {filename}", 5000)
 
     def preview(self) -> None:
-        preview_dir = Path(tempfile.mkdtemp(prefix="glsketch-preview-"))
-        script = preview_dir / "preview.py"
-        script.write_text(
-            generate_code(self.scene_model, ExportOptions(markers=False)), encoding="utf-8"
-        )
-        try:
-            subprocess.Popen([sys.executable, str(script)], cwd=preview_dir)  # noqa: S603
-        except OSError as error:
-            QMessageBox.critical(self, "Preview indisponível", str(error))
+        dialog = PreviewDialog(generate_code(self.scene_model, ExportOptions(markers=False)), self)
+        dialog.finished.connect(lambda: self._preview_dialogs.remove(dialog))
+        self._preview_dialogs.append(dialog)
+        dialog.show()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         event.accept() if self._confirm_discard() else event.ignore()

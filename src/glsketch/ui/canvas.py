@@ -67,6 +67,7 @@ _PRIMITIVES = {
     ObjectKind.TRIANGLE: GL_TRIANGLES,
     ObjectKind.POLYGON: GL_POLYGON,
     ObjectKind.ELLIPSE: GL_TRIANGLE_FAN,
+    ObjectKind.STAR: GL_POLYGON,
 }
 
 
@@ -104,6 +105,7 @@ class OpenGLCanvas(QOpenGLWidget):
     model_changed = Signal()
     object_selected = Signal(str)
     cursor_position = Signal(float, float)
+    text_requested = Signal(float, float)
 
     def __init__(self, model: Scene, parent=None) -> None:
         super().__init__(parent)
@@ -113,6 +115,7 @@ class OpenGLCanvas(QOpenGLWidget):
         self._tool = "select"
         self._selected_id: str | None = None
         self._start: Point | None = None
+        self._hover: Point | None = None
         self._pending_points: list[Point] = []
         self._pan_start: QPointF | None = None
         self._pan_origin = (0.0, 0.0)
@@ -151,6 +154,7 @@ class OpenGLCanvas(QOpenGLWidget):
             if obj.visible:
                 self._render_object(obj)
         self._render_pending()
+        self._render_drag_preview()
         self._render_selection()
 
     def _view_bounds(self) -> tuple[float, float, float, float]:
@@ -263,13 +267,6 @@ class OpenGLCanvas(QOpenGLWidget):
         self.doneCurrent()
 
     def _render_object(self, obj: SceneObject) -> None:
-        color = (
-            obj.stroke_color
-            if obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
-            else obj.fill_color
-        )
-        glColor3f(color.r, color.g, color.b)
-        glLineWidth(max(1.0, obj.stroke_width))
         glPushMatrix()
         glTranslatef(0.0, 0.0, 0.0)
         if obj.rotation:
@@ -277,18 +274,30 @@ class OpenGLCanvas(QOpenGLWidget):
         if obj.scale_x != 1.0 or obj.scale_y != 1.0:
             glScalef(obj.scale_x, obj.scale_y, 1.0)
         if obj.kind == ObjectKind.TEXT:
-            self._render_text(obj)
+            if obj.fill_enabled:
+                glColor3f(obj.fill_color.r, obj.fill_color.g, obj.fill_color.b)
+                self._render_text(obj)
         else:
-            glBegin(_PRIMITIVES[obj.kind])
-            if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
-                center_x = sum(point.x for point in obj.vertices) / len(obj.vertices)
-                center_y = sum(point.y for point in obj.vertices) / len(obj.vertices)
-                glVertex2f(center_x, center_y)
-            for point in obj.vertices:
-                glVertex2f(point.x, point.y)
-            if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
-                glVertex2f(obj.vertices[0].x, obj.vertices[0].y)
-            glEnd()
+            line_kind = obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
+            if obj.fill_enabled and not line_kind:
+                glColor3f(obj.fill_color.r, obj.fill_color.g, obj.fill_color.b)
+                glBegin(_PRIMITIVES[obj.kind])
+                if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
+                    center_x = sum(point.x for point in obj.vertices) / len(obj.vertices)
+                    center_y = sum(point.y for point in obj.vertices) / len(obj.vertices)
+                    glVertex2f(center_x, center_y)
+                for point in obj.vertices:
+                    glVertex2f(point.x, point.y)
+                if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
+                    glVertex2f(obj.vertices[0].x, obj.vertices[0].y)
+                glEnd()
+            if obj.stroke_enabled:
+                glColor3f(obj.stroke_color.r, obj.stroke_color.g, obj.stroke_color.b)
+                glLineWidth(max(1.0, obj.stroke_width))
+                glBegin(_PRIMITIVES[obj.kind] if line_kind else GL_LINE_LOOP)
+                for point in obj.vertices:
+                    glVertex2f(point.x, point.y)
+                glEnd()
         glPopMatrix()
 
     @staticmethod
@@ -320,6 +329,36 @@ class OpenGLCanvas(QOpenGLWidget):
         for point in self._pending_points:
             glVertex2f(point.x, point.y)
         glEnd()
+
+    def _render_drag_preview(self) -> None:
+        if self._start is None or self._hover is None or self._start == self._hover:
+            return
+        start, end = self._start, self._hover
+        factory = {
+            "rectangle": lambda: SceneObject.rectangle(start, end),
+            "square": lambda: SceneObject.rectangle(start, self._proportional_end(start, end)),
+            "triangle": lambda: SceneObject.triangle(start, end),
+            "line": lambda: SceneObject.create(ObjectKind.LINE, [start, end]),
+            "ellipse": lambda: SceneObject.ellipse(start, end),
+            "star": lambda: SceneObject.star(start, end),
+        }.get(self._tool)
+        if not factory:
+            return
+        obj = factory()
+        glColor3f(0.11, 0.30, 0.85)
+        glLineWidth(2.0)
+        glBegin(GL_LINES if obj.kind == ObjectKind.LINE else GL_LINE_LOOP)
+        for point in obj.vertices:
+            glVertex2f(point.x, point.y)
+        glEnd()
+
+    @staticmethod
+    def _proportional_end(start: Point, end: Point) -> Point:
+        size = max(abs(end.x - start.x), abs(end.y - start.y))
+        return Point(
+            start.x + size * (1 if end.x >= start.x else -1),
+            start.y + size * (1 if end.y >= start.y else -1),
+        )
 
     def _render_selection(self) -> None:
         obj = self.model.find(self._selected_id or "")
@@ -420,6 +459,12 @@ class OpenGLCanvas(QOpenGLWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        if self._tool == "text":
+            self.text_requested.emit(point.x, point.y)
+            return
+        if self._tool == "pencil":
+            self._pending_points = [point]
+            return
         if self._tool in {"polygon", "line_strip", "line_loop"}:
             if not self._pending_points or point != self._pending_points[-1]:
                 self._pending_points.append(point)
@@ -452,6 +497,15 @@ class OpenGLCanvas(QOpenGLWidget):
         raw = self._screen_to_world(event.position())
         point = self._screen_to_world(event.position(), snap=True)
         self.cursor_position.emit(raw.x, raw.y)
+        if self._tool == "pencil" and self._pending_points:
+            distance = hypot(
+                point.x - self._pending_points[-1].x,
+                point.y - self._pending_points[-1].y,
+            )
+            if distance > self._pick_tolerance() / 2:
+                self._pending_points.append(point)
+                self.update()
+            return
         if self._pan_start is not None:
             left, right, bottom, top = self._view_bounds()
             delta = event.position() - self._pan_start
@@ -493,6 +547,10 @@ class OpenGLCanvas(QOpenGLWidget):
                 dx, dy = point.x - start.x, point.y - start.y
                 obj.vertices = [Point(vertex.x + dx, vertex.y + dy) for vertex in original]
                 self.update()
+            return
+        if self._start is not None:
+            self._hover = point
+            self.update()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -501,25 +559,36 @@ class OpenGLCanvas(QOpenGLWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        if self._tool == "pencil" and self._pending_points:
+            if len(self._pending_points) >= 2:
+                self.object_created.emit(
+                    SceneObject.create(ObjectKind.LINE_STRIP, self._pending_points, name="Lápis")
+                )
+            self._pending_points = []
+            self.update()
+            return
         if self._tool != "select" and self._start is not None:
             start = self._start
             end = self._screen_to_world(event.position(), snap=True)
-            if self._tool == "rectangle" and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                size = max(abs(end.x - start.x), abs(end.y - start.y))
-                end = Point(
-                    start.x + size * (1 if end.x >= start.x else -1),
-                    start.y + size * (1 if end.y >= start.y else -1),
-                )
+            if self._tool == "square" or (
+                self._tool == "rectangle" and event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+            ):
+                end = self._proportional_end(start, end)
+            if self._tool == "ellipse" and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                end = self._proportional_end(start, end)
             if start != end:
                 factory = {
                     "rectangle": lambda: SceneObject.rectangle(start, end),
+                    "square": lambda: SceneObject.rectangle(start, end, name="Quadrado"),
                     "triangle": lambda: SceneObject.triangle(start, end),
                     "line": lambda: SceneObject.create(ObjectKind.LINE, [start, end]),
                     "ellipse": lambda: SceneObject.ellipse(start, end),
+                    "star": lambda: SceneObject.star(start, end),
                 }.get(self._tool)
                 if factory:
                     self.object_created.emit(factory())
             self._start = None
+            self._hover = None
             return
         changed = any((self._drag_data, self._resize_data, self._vertex_data))
         self._drag_data = self._resize_data = self._vertex_data = None
