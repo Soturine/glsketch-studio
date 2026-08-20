@@ -463,7 +463,7 @@ class MainWindow(QMainWindow):
         self._model_changed()
 
     def fit_canvas(self) -> None:
-        self.canvas.fitInView(self.canvas.graphics.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.canvas.fit_to_scene()
 
     def _confirm_discard(self) -> bool:
         if not self.dirty:
