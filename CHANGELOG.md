@@ -2,6 +2,18 @@
 
 Formato inspirado em [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e versionamento SemVer.
 
+## [Unreleased]
+
+### Changed
+
+- Renderer principal migrado de QGraphics para `QOpenGLWidget + PyOpenGL`.
+- Grid, primitivas, seleção e overlays agora são desenhados em OpenGL imediato.
+- Imagens de referência agora são texturas OpenGL.
+
+### Added
+
+- Testes de conformidade para canvas e exportação exclusivamente OpenGL.
+
 ## [0.3.0] - 2026-08-20
 
 ### Added

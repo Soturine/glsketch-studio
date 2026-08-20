@@ -1,5 +1,7 @@
 # Subconjunto OpenGL suportado
 
+O canvas principal e o exportador compartilham o mesmo `Scene Model` e usam exclusivamente PyOpenGL. PySide6 fornece o contexto por `QOpenGLWidget`, mas não renderiza as formas. Não são usados Pygame, Turtle, QGraphics, Matplotlib, Cairo, ModernGL ou outro motor gráfico.
+
 | Função/primitiva | Visual → código | Código → visual | Exportável | Observações |
 |---|---:|---:|---:|---|
 | `glColor3f` | Sim | Sim | Sim | Literais entre 0 e 1 |
@@ -18,3 +20,4 @@
 
 Python ou OpenGL fora desse subconjunto nunca é executado pelo editor. Texto válido permanece exportável e recebe aviso “somente código”.
 
+Imagens de referência usam `GL_TEXTURE_2D`/`glTexImage2D` somente no canvas. Elas nunca são incluídas na exportação de geometria.
