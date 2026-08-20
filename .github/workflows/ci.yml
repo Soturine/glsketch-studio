@@ -22,6 +22,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - name: Install OpenGL runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - run: ruff check .
@@ -30,4 +33,3 @@ jobs:
           QT_QPA_PLATFORM: offscreen
       - run: python -m build
         if: runner.os == 'Linux'
-
