@@ -10,6 +10,7 @@ from glsketch.domain.scene import Scene
 @dataclass(frozen=True, slots=True)
 class ExportOptions:
     full_program: bool = True
+    draw_function_only: bool = False
     markers: bool = True
     comments: bool = True
     selected_ids: frozenset[str] | None = None
@@ -24,6 +25,7 @@ _PRIMITIVES = {
     ObjectKind.TRIANGLE: "GL_TRIANGLES",
     ObjectKind.POLYGON: "GL_POLYGON",
     ObjectKind.ELLIPSE: "GL_TRIANGLE_FAN",
+    ObjectKind.STAR: "GL_POLYGON",
 }
 
 
@@ -42,14 +44,6 @@ def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> lis
     lines: list[str] = []
     if markers:
         lines.append(f'# <glsketch-object id="{obj.id}" name="{obj.name}" type="{obj.kind.value}">')
-    color = (
-        obj.stroke_color
-        if obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
-        else obj.fill_color
-    )
-    lines.append(f"glColor3f({_number(color.r)}, {_number(color.g)}, {_number(color.b)})")
-    if obj.stroke_width != 1.0:
-        lines.append(f"glLineWidth({_number(obj.stroke_width)})")
     if obj.rotation or obj.scale_x != 1.0 or obj.scale_y != 1.0:
         lines.append("glPushMatrix()")
         if obj.rotation:
@@ -57,6 +51,8 @@ def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> lis
         if obj.scale_x != 1.0 or obj.scale_y != 1.0:
             lines.append(f"glScalef({_number(obj.scale_x)}, {_number(obj.scale_y)}, 1.0)")
     if obj.kind == ObjectKind.TEXT:
+        color = obj.fill_color
+        lines.append(f"glColor3f({_number(color.r)}, {_number(color.g)}, {_number(color.b)})")
         anchor = obj.vertices[0]
         lines.append(f"glRasterPos2f({_number(anchor.x)}, {_number(anchor.y)})")
         lines.append(f"for char in {obj.text!r}:")
@@ -64,19 +60,36 @@ def _object_lines(obj: SceneObject, prefer_integers: bool, markers: bool) -> lis
     else:
         primitive = _PRIMITIVES[obj.kind]
         vertices = obj.vertices
-        if obj.kind == ObjectKind.POLYGON and not is_convex(vertices) and not markers:
+        if (
+            obj.kind in {ObjectKind.POLYGON, ObjectKind.STAR}
+            and not is_convex(vertices)
+            and not markers
+        ):
             primitive = "GL_TRIANGLES"
             vertices = [point for triangle in triangulate(vertices) for point in triangle]
             lines.append("# Polígono côncavo triangulado pelo GLSketch")
-        lines.append(f"glBegin({primitive})")
-        if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
-            cx = sum(point.x for point in obj.vertices) / len(obj.vertices)
-            cy = sum(point.y for point in obj.vertices) / len(obj.vertices)
-            lines.append(_vertex(Point(cx, cy), prefer_integers))
-        lines.extend(_vertex(point, prefer_integers) for point in vertices)
-        if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
-            lines.append(_vertex(obj.vertices[0], prefer_integers))
-        lines.append("glEnd()")
+        line_kind = obj.kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
+        if obj.fill_enabled and not line_kind:
+            color = obj.fill_color
+            lines.append(f"glColor3f({_number(color.r)}, {_number(color.g)}, {_number(color.b)})")
+            lines.append(f"glBegin({primitive})")
+            if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
+                cx = sum(point.x for point in obj.vertices) / len(obj.vertices)
+                cy = sum(point.y for point in obj.vertices) / len(obj.vertices)
+                lines.append(_vertex(Point(cx, cy), prefer_integers))
+            lines.extend(_vertex(point, prefer_integers) for point in vertices)
+            if obj.kind == ObjectKind.ELLIPSE and obj.vertices:
+                lines.append(_vertex(obj.vertices[0], prefer_integers))
+            lines.append("glEnd()")
+        if obj.stroke_enabled:
+            color = obj.stroke_color
+            lines.append(f"glColor3f({_number(color.r)}, {_number(color.g)}, {_number(color.b)})")
+            if obj.stroke_width != 1.0:
+                lines.append(f"glLineWidth({_number(obj.stroke_width)})")
+            outline = primitive if line_kind else "GL_LINE_LOOP"
+            lines.append(f"glBegin({outline})")
+            lines.extend(_vertex(point, prefer_integers) for point in obj.vertices)
+            lines.append("glEnd()")
     if obj.rotation or obj.scale_x != 1.0 or obj.scale_y != 1.0:
         lines.append("glPopMatrix()")
     if markers:
@@ -102,12 +115,22 @@ def generate_draw_body(scene: Scene, options: ExportOptions | None = None) -> st
 def generate_code(scene: Scene, options: ExportOptions | None = None) -> str:
     options = options or ExportOptions()
     body = generate_draw_body(scene, options)
-    if not options.full_program:
+    if not options.full_program and not options.draw_function_only:
         return body + ("\n" if body else "")
     c = scene.canvas
     indented = "\n".join(f"    {line}" if line else "" for line in body.splitlines())
     if not indented:
         indented = "    pass"
+    if options.draw_function_only:
+        return f"""def Desenha():
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+    glClear(GL_COLOR_BUFFER_BIT)
+
+{indented}
+
+    glFlush()
+"""
     heading = (
         "# Gerado pelo GLSketch Studio — Modo Aula / Legacy OpenGL\n" if options.comments else ""
     )

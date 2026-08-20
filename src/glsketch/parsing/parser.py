@@ -98,10 +98,10 @@ def _parse_block(
     color = Color(0.18, 0.55, 0.96)
     stroke_width = 1.0
     primitive: str | None = None
-    vertices: list[Point] = []
+    current_vertices: list[Point] = []
+    batches: list[tuple[str, list[Point], Color, float]] = []
     translate_x = translate_y = rotation = 0.0
     scale_x = scale_y = 1.0
-    ended = False
     raster_position: Point | None = None
     text_value = ""
     for statement in statements:
@@ -129,16 +129,23 @@ def _parse_block(
             elif function == "glRasterPos2f" and len(args) == 2:
                 raster_position = Point(_number(args[0]), _number(args[1]))
             elif function == "glBegin" and len(args) == 1 and isinstance(args[0], ast.Name):
+                if primitive is not None:
+                    diagnostics.append(Diagnostic(Severity.ERROR, "glBegin aninhado", line))
                 primitive = args[0].id
-                ended = False
+                current_vertices = []
             elif function in {"glVertex2f", "glVertex2i"} and len(args) == 2:
                 if primitive is None:
                     diagnostics.append(
                         Diagnostic(Severity.ERROR, f"{function} fora de glBegin/glEnd", line)
                     )
-                vertices.append(Point(_number(args[0]), _number(args[1])))
+                current_vertices.append(Point(_number(args[0]), _number(args[1])))
             elif function == "glEnd":
-                ended = True
+                if primitive is None:
+                    diagnostics.append(Diagnostic(Severity.ERROR, "glEnd sem glBegin", line))
+                else:
+                    batches.append((primitive, current_vertices, color, stroke_width))
+                    primitive = None
+                    current_vertices = []
             elif function == "glTranslatef" and len(args) >= 2:
                 translate_x, translate_y = _number(args[0]), _number(args[1])
             elif function == "glRotatef" and args:
@@ -162,23 +169,41 @@ def _parse_block(
             fill_color=color,
             stroke_color=color,
             text=text_value,
+            fill_enabled=True,
+            stroke_enabled=False,
         )
         return obj, diagnostics, unsupported
-    if primitive is None:
+    if primitive is not None:
+        diagnostics.append(Diagnostic(Severity.ERROR, f"{primitive} sem glEnd()", line_offset))
+    if not batches:
         diagnostics.append(Diagnostic(Severity.ERROR, "Bloco sem glBegin suportado", line_offset))
         return None, diagnostics, unsupported
-    if primitive not in _KINDS:
+    if any(batch[0] not in _KINDS for batch in batches):
+        unsupported_primitive = next(batch[0] for batch in batches if batch[0] not in _KINDS)
         diagnostics.append(
-            Diagnostic(Severity.WARNING, f"Primitiva {primitive} ainda não suportada", line_offset)
+            Diagnostic(
+                Severity.WARNING,
+                f"Primitiva {unsupported_primitive} ainda não suportada",
+                line_offset,
+            )
         )
         return None, diagnostics, unsupported
-    if not ended:
-        diagnostics.append(Diagnostic(Severity.ERROR, f"{primitive} sem glEnd()", line_offset))
-    kind = _KINDS[primitive]
-    if type_hint in {item.value for item in ObjectKind}:
-        hinted = ObjectKind(type_hint)
-        if hinted == ObjectKind.POLYGON and primitive == "GL_TRIANGLES":
-            kind = hinted
+    hinted = ObjectKind(type_hint) if type_hint in {item.value for item in ObjectKind} else None
+    line_kinds = {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
+    if hinted in line_kinds:
+        fill_batch = None
+        stroke_batch = batches[0]
+        kind = hinted
+    else:
+        fill_batch = next((batch for batch in batches if batch[0] != "GL_LINE_LOOP"), None)
+        stroke_batch = next(
+            (batch for batch in batches if batch[0] == "GL_LINE_LOOP" and batch is not fill_batch),
+            None,
+        )
+        primary = fill_batch or stroke_batch or batches[0]
+        kind = hinted or _KINDS[primary[0]]
+    geometry_batch = fill_batch or stroke_batch or batches[0]
+    vertices = list(geometry_batch[1])
     if kind == ObjectKind.ELLIPSE and len(vertices) >= 3:
         vertices = vertices[1:]
         if len(vertices) > 1 and vertices[-1] == vertices[0]:
@@ -189,9 +214,11 @@ def _parse_block(
         name=name or kind.value.replace("_", " ").title(),
         kind=kind,
         vertices=vertices,
-        fill_color=color,
-        stroke_color=color,
-        stroke_width=stroke_width,
+        fill_color=fill_batch[2] if fill_batch else Color(0.18, 0.55, 0.96),
+        stroke_color=stroke_batch[2] if stroke_batch else geometry_batch[2],
+        stroke_width=stroke_batch[3] if stroke_batch else geometry_batch[3],
+        fill_enabled=fill_batch is not None,
+        stroke_enabled=stroke_batch is not None,
         rotation=rotation,
         scale_x=scale_x,
         scale_y=scale_y,

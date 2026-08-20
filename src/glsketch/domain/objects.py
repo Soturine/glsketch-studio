@@ -52,6 +52,7 @@ class ObjectKind(StrEnum):
     POLYGON = "polygon"
     ELLIPSE = "ellipse"
     TEXT = "text"
+    STAR = "star"
 
 
 @dataclass(slots=True)
@@ -63,6 +64,8 @@ class SceneObject:
     fill_color: Color = field(default_factory=lambda: Color(0.18, 0.55, 0.96))
     stroke_color: Color = field(default_factory=lambda: Color(0.08, 0.12, 0.18))
     stroke_width: float = 1.0
+    fill_enabled: bool = True
+    stroke_enabled: bool = True
     visible: bool = True
     locked: bool = False
     rotation: float = 0.0
@@ -81,12 +84,14 @@ class SceneObject:
         fill_color: Color | None = None,
     ) -> SceneObject:
         label = kind.value.replace("_", " ").title()
+        line_kind = kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
         return cls(
             id=f"obj-{uuid4().hex[:12]}",
             name=name or label,
             kind=kind,
             vertices=list(vertices),
             fill_color=fill_color or Color(0.18, 0.55, 0.96),
+            fill_enabled=not line_kind,
         )
 
     @classmethod
@@ -120,6 +125,20 @@ class SceneObject:
         obj.metadata["segments"] = segments
         return obj
 
+    @classmethod
+    def star(cls, start: Point, end: Point, points: int = 5, **kwargs: Any) -> SceneObject:
+        points = max(3, min(32, points))
+        cx, cy = (start.x + end.x) / 2, (start.y + end.y) / 2
+        outer_x, outer_y = abs(end.x - start.x) / 2, abs(end.y - start.y) / 2
+        vertices = []
+        for index in range(points * 2):
+            angle = -pi / 2 + index * pi / points
+            radius = 1.0 if index % 2 == 0 else 0.42
+            vertices.append(
+                Point(cx + outer_x * radius * cos(angle), cy + outer_y * radius * sin(angle))
+            )
+        return cls.create(ObjectKind.STAR, vertices, **kwargs)
+
     def translated(self, dx: float, dy: float) -> SceneObject:
         return replace(
             self, vertices=[Point(point.x + dx, point.y + dy) for point in self.vertices]
@@ -143,6 +162,8 @@ class SceneObject:
             "fill_color": self.fill_color.to_list(),
             "stroke_color": self.stroke_color.to_list(),
             "stroke_width": self.stroke_width,
+            "fill_enabled": self.fill_enabled,
+            "stroke_enabled": self.stroke_enabled,
             "rotation": self.rotation,
             "scale": [self.scale_x, self.scale_y],
             "text": self.text,
@@ -160,6 +181,8 @@ class SceneObject:
             fill_color=Color(*map(float, data.get("fill_color", [0.18, 0.55, 0.96, 1.0]))),
             stroke_color=Color(*map(float, data.get("stroke_color", [0.08, 0.12, 0.18, 1.0]))),
             stroke_width=float(data.get("stroke_width", 1.0)),
+            fill_enabled=bool(data.get("fill_enabled", True)),
+            stroke_enabled=bool(data.get("stroke_enabled", True)),
             visible=bool(data.get("visible", True)),
             locked=bool(data.get("locked", False)),
             rotation=float(data.get("rotation", 0.0)),

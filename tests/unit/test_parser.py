@@ -25,12 +25,11 @@ def test_shape_round_trip(kind: ObjectKind, vertices: list[Point]) -> None:
     assert parsed.id == original.id
     assert parsed.kind == kind
     assert parsed.vertices == vertices
-    expected_color = (
-        original.stroke_color
-        if kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}
-        else original.fill_color
-    )
-    assert parsed.fill_color == expected_color
+    if kind in {ObjectKind.LINE, ObjectKind.LINE_STRIP, ObjectKind.LINE_LOOP}:
+        assert parsed.stroke_color == original.stroke_color
+        assert not parsed.fill_enabled
+    else:
+        assert parsed.fill_color == original.fill_color
 
 
 def test_ellipse_round_trip() -> None:
@@ -100,6 +99,21 @@ def test_concave_polygon_keeps_kind_after_triangulation() -> None:
     assert result.valid and result.scene
     assert result.scene.objects[0].kind == ObjectKind.POLYGON
     assert result.scene.objects[0].vertices == polygon.vertices
+
+
+def test_star_and_fill_style_round_trip() -> None:
+    star = SceneObject.star(Point(10, 10), Point(90, 90), name="Estrela")
+    star.fill_enabled = False
+    star.stroke_color = Color(1, 0, 0)
+    star.stroke_width = 3
+    result = parse_code(generate_code(Scene(objects=[star])))
+    assert result.valid and result.scene
+    parsed = result.scene.objects[0]
+    assert parsed.kind == ObjectKind.STAR
+    assert not parsed.fill_enabled
+    assert parsed.stroke_enabled
+    assert parsed.stroke_color == Color(1, 0, 0)
+    assert parsed.stroke_width == 3
 
 
 def test_clean_code_without_markers_is_parsed() -> None:
