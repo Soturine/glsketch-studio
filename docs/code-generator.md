@@ -4,3 +4,4 @@ O modo principal gera um programa Python/PyOpenGL completo em OpenGL imediato, c
 
 No código de edição, marcadores `glsketch-object` preservam identidade. Na exportação limpa eles podem ser removidos.
 
+O diálogo exporta um programa completo, somente `Desenha()` ou as primitivas selecionadas. Preenchimento e borda geram passagens OpenGL separadas. Polígonos côncavos e estrelas são triangulados para evitar resultados incorretos.

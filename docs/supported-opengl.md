@@ -21,3 +21,5 @@ O canvas principal e o exportador compartilham o mesmo `Scene Model` e usam excl
 Python ou OpenGL fora desse subconjunto nunca é executado pelo editor. Texto válido permanece exportável e recebe aviso “somente código”.
 
 Imagens de referência usam `GL_TEXTURE_2D`/`glTexImage2D` somente no canvas. Elas nunca são incluídas na exportação de geometria.
+
+Formas amigáveis que não existem como primitivas nativas são decompostas: círculos/elipses usam `GL_TRIANGLE_FAN`, estrelas usam um polígono triangulado e bordas usam `GL_LINE_LOOP`.
