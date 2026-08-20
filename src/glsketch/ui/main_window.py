@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QToolBar,
@@ -34,7 +33,9 @@ from glsketch.commands import SceneHistory
 from glsketch.domain.objects import Color, ObjectKind, Point, SceneObject
 from glsketch.domain.scene import ReferenceImage, Scene
 from glsketch.persistence import load_project, save_project
+from glsketch.sync import ChangeOrigin, SynchronizationController
 from glsketch.ui.canvas import CanvasView
+from glsketch.ui.code_editor import CodeEditor
 
 
 class MainWindow(QMainWindow):
@@ -44,6 +45,9 @@ class MainWindow(QMainWindow):
         self.project_path: Path | None = None
         self.dirty = False
         self.history = SceneHistory(self.scene_model.to_dict())
+        self.sync = SynchronizationController(self.scene_model)
+        self.block_ranges: dict[str, tuple[int, int]] = {}
+        self._syncing_code = False
         self.setWindowTitle("GLSketch Studio — Projeto sem título")
         self.resize(1440, 900)
         self._actions: dict[str, QAction] = {}
@@ -88,13 +92,18 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel("Camadas"))
         left_layout.addWidget(self.layers, 1)
 
-        self.code = QPlainTextEdit()
-        self.code.setReadOnly(True)
-        self.code.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.code = CodeEditor()
+        self.code.setLineWrapMode(CodeEditor.LineWrapMode.NoWrap)
         font = self.code.font()
         font.setFamilies(["Cascadia Code", "Consolas", "monospace"])
         font.setPointSize(10)
         self.code.setFont(font)
+        self.code_timer = QTimer(self)
+        self.code_timer.setSingleShot(True)
+        self.code_timer.setInterval(350)
+        self.code_timer.timeout.connect(self._apply_code_edit)
+        self.code.textChanged.connect(self._schedule_code_sync)
+        self.code.cursorPositionChanged.connect(self._code_cursor_moved)
         self.diagnostics = QLabel("Sem problemas")
         self.diagnostics.setWordWrap(True)
         right = QWidget()
@@ -212,7 +221,15 @@ class MainWindow(QMainWindow):
 
     def _refresh_all(self, select_id: str | None = None) -> None:
         self.canvas.refresh(select_id)
-        self.code.setPlainText(generate_code(self.scene_model))
+        with self.sync.changing(ChangeOrigin.CANVAS):
+            outcome = self.sync.from_scene(self.scene_model, self.code.toPlainText())
+        self._set_code(outcome.code)
+        self.block_ranges = outcome.block_ranges
+        self._show_diagnostics(outcome.diagnostics)
+        self._refresh_layers(select_id)
+        self._update_title()
+
+    def _refresh_layers(self, select_id: str | None = None) -> None:
         current = select_id or self.canvas.selected_object_id()
         self.layers.blockSignals(True)
         self.layers.clear()
@@ -222,7 +239,58 @@ class MainWindow(QMainWindow):
             if obj.id == current:
                 self.layers.setCurrentRow(self.layers.count() - 1)
         self.layers.blockSignals(False)
+
+    def _set_code(self, text: str) -> None:
+        if self.code.toPlainText() == text:
+            return
+        cursor = self.code.textCursor()
+        position = cursor.position()
+        scroll = self.code.verticalScrollBar().value()
+        self._syncing_code = True
+        self.code.setPlainText(text)
+        cursor.setPosition(min(position, len(text)))
+        self.code.setTextCursor(cursor)
+        self.code.verticalScrollBar().setValue(scroll)
+        self._syncing_code = False
+
+    def _schedule_code_sync(self) -> None:
+        if not self._syncing_code:
+            self.code_timer.start()
+
+    def _apply_code_edit(self) -> None:
+        with self.sync.changing(ChangeOrigin.CODE):
+            outcome = self.sync.from_code(self.code.toPlainText())
+        self.block_ranges = outcome.block_ranges
+        self._show_diagnostics(outcome.diagnostics)
+        if not outcome.applied:
+            error = next((item for item in outcome.diagnostics if item.severity == "error"), None)
+            if error:
+                self.code.highlight_range(error.line, error.line, error=True)
+            return
+        self.scene_model = outcome.scene
+        self.canvas.set_model(self.scene_model)
+        self.history.checkpoint(self.scene_model.to_dict())
+        self.dirty = True
+        self._refresh_layers()
         self._update_title()
+
+    def _show_diagnostics(self, diagnostics) -> None:
+        if not diagnostics:
+            self.diagnostics.setText("Sem problemas — trecho sincronizado")
+            return
+        self.diagnostics.setText(
+            "\n".join(
+                f"{item.severity.value.upper()} — linha {item.line}: {item.message}"
+                for item in diagnostics[:6]
+            )
+        )
+
+    def _code_cursor_moved(self) -> None:
+        line = self.code.textCursor().blockNumber() + 1
+        for object_id, (first, last) in self.block_ranges.items():
+            if first <= line <= last:
+                self.canvas.select_object(object_id)
+                return
 
     def _update_title(self) -> None:
         name = self.project_path.name if self.project_path else "Projeto sem título"
@@ -252,6 +320,9 @@ class MainWindow(QMainWindow):
             self.visible_check.setChecked(obj.visible)
             self.locked_check.setChecked(obj.locked)
             self.fill_button.setStyleSheet(f"background: {obj.fill_color.to_hex()}")
+            block = self.block_ranges.get(obj.id)
+            if block:
+                self.code.highlight_range(*block)
             for control in (
                 self.name_edit,
                 self.x_spin,
@@ -411,6 +482,7 @@ class MainWindow(QMainWindow):
         self.scene_model = Scene()
         self.canvas.set_model(self.scene_model)
         self.history = SceneHistory(self.scene_model.to_dict())
+        self.sync = SynchronizationController(self.scene_model)
         self.project_path = None
         self.dirty = False
         self._refresh_all()
@@ -430,6 +502,7 @@ class MainWindow(QMainWindow):
             return
         self.canvas.set_model(self.scene_model)
         self.history = SceneHistory(self.scene_model.to_dict())
+        self.sync = SynchronizationController(self.scene_model)
         self.project_path = Path(filename)
         self.dirty = False
         self._refresh_all()
